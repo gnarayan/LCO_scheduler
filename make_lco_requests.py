@@ -5,6 +5,8 @@ import glob
 import json
 import multiprocessing
 import cPickle as pickle
+import urllib
+import httplib
 import warnings
 warnings.simplefilter('always')
 from collections import Counter, OrderedDict
@@ -239,7 +241,7 @@ def main():
 
     proposal    = {'proposal_id':'2016B-007',\
                     'user_id':'gsnarayan@gmail.com',\
-                    'password':''}
+                    'password':sys.argv[1]}
 
     molecule    = {'ag_mode':'ON',\
                     'ag_name':'',\
@@ -249,14 +251,16 @@ def main():
                     'exposure_count':None,\
                     'exposure_time':None,\
                     'fill_window':False,\
-                    'filter':"SDSS-g'",\
+                    'filter':"gp",\
                     'instrument_name':'1M0-SCICAM-SINISTRO',\
                     'type':'EXPOSE'}
 
     target = {'name':None,\
                 'ra':None,\
                 'dec':None,\
-                'epoch':None}
+                'epoch':None,\
+                'equinox':'J2000',\
+                'coordinate_system':'ICRS'}
 
     window = {'start':'',\
                 'end':''}
@@ -447,6 +451,7 @@ def main():
                 user_request = {
                     "operator" : "single",
                     "requests" : [request],
+                    "ipp_value": 1.0,
                     "type" : "compound_request"
                     }
 
@@ -457,6 +462,34 @@ def main():
                     json.dump(user_request, outf, indent=2, sort_keys=True)
                 count += 1
                 target_obs_ctr[targetname] = count
+                params = urllib.urlencode({'username': proposal['user_id'],
+                                   'password': proposal['password'],
+                                                  'proposal': proposal['proposal_id'],
+                                                                 'request_data' : json_user_request})
+
+                #submit the request
+                headers = {'Content-type': 'application/x-www-form-urlencoded'}
+                conn = httplib.HTTPSConnection("lco.global")
+                conn.request("POST", "/observe/service/request/submit", params, headers)
+                conn_response = conn.getresponse()
+
+                # The status can tell you if sending the request failed or not.
+                # 200 or 203 would mean success, 400 or anything else fail
+                status_code = conn_response.status
+
+                # If the status was a failure, the response text is a reason why it failed
+                # If the status was a success, the response text is tracking number of the submitted request
+                response = conn_response.read()
+                print response
+
+                response = json.loads(response)
+
+                if status_code == 200:
+                    try:
+                        print "http://lco.global/observe/request/" + response['id']
+                    except KeyError:
+                        print response['error']
+
             #endelse
         #end requested blocks on this date
         unobs_date_blocks[date] = unscheduled_blocks
@@ -467,38 +500,6 @@ def main():
 
     ############################ CONSTRUCT LCO FORMAT REQUESTS FROM SCHEDULE  ############################
         
-#                #params = urllib.urlencode({'username': proposal['user_id'],
-#                #                   'password': proposal['password'],
-#                #                                  'proposal': proposal['proposal_id'],
-#                #                                                 'request_data' : json_user_request})
-#
-#                ##submit the request
-#                #headers = {'Content-type': 'application/x-www-form-urlencoded'}
-#                #conn = httplib.HTTPSConnection("lcogt.net")
-#                #conn.request("POST", "/observe/service/request/submit", params, headers)
-#                #conn_response = conn.getresponse()
-#
-#                ## The status can tell you if sending the request failed or not.
-#                ## 200 or 203 would mean success, 400 or anything else fail
-#                #status_code = conn_response.status
-#
-#                ## If the status was a failure, the response text is a reason why it failed
-#                ## If the status was a success, the response text is tracking number of the submitted request
-#                #response = conn_response.read()
-#
-#                #response = json.loads(response)
-#                #print response
-#
-#                #if status_code == 200:
-#                #try:
-#                #    print "http://lcogt.net/observe/request/" + response['id']
-#                #except KeyError:
-#                #    print response['error']
-#
-#
-#            # end to observation dateloop
-#
-#
 
 
 if __name__=='__main__':
