@@ -239,7 +239,7 @@ def main():
 
     location    = {'telescope_class':'1m0'}
 
-    proposal    = {'proposal_id':'2016B-007',\
+    proposal    = {'proposal_id':'LCO2016B-007',\
                     'user_id':'gsnarayan@gmail.com',\
                     'password':sys.argv[1]}
 
@@ -452,7 +452,8 @@ def main():
                     "operator" : "single",
                     "requests" : [request],
                     "ipp_value": 1.0,
-                    "type" : "compound_request"
+                    "type" : "compound_request",
+                    "group_id":'%s_%02i_%s'%(targetname, count, date)
                     }
 
                 #convert the request to JSON
@@ -466,6 +467,8 @@ def main():
                                    'password': proposal['password'],
                                                   'proposal': proposal['proposal_id'],
                                                                  'request_data' : json_user_request})
+
+                print params
 
                 #submit the request
                 headers = {'Content-type': 'application/x-www-form-urlencoded'}
