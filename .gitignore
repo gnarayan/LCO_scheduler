@@ -93,3 +93,6 @@ ENV/
 
 #json
 *.json
+
+#pdf
+*pdf
