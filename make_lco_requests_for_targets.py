@@ -218,7 +218,7 @@ def setup_target(this_target, startsemester, endsemester, target, molecule, coor
     # how many observations can we reasonably squeeze into this reduced window
     n_good_dates = len(avail_dates)
 
-    print "Fraction of moon-illum controlled window that the target is observable: {:.3f}".format(1.*n_good_dates/n_full_dates)
+    print "Fraction of moon-illum controlled window that target {} is observable: {:.3f}".format(nice_target_name, 1.*n_good_dates/n_full_dates)
     n_blocks = np.round(n_full*(1.*n_good_dates / n_full_dates))
     if n_good_dates == 0 or n_blocks==0:
         # we can't schedule this target - it isn't up at all
