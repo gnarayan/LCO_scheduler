@@ -314,6 +314,7 @@ def main():
 
 
     # The question is not where are we, but when are we?
+    today = Time(datetime.datetime.now(), format='datetime')
     tomorrow = datetime.datetime.fromordinal(datetime.datetime.now().toordinal() + 1)
     startsemester  = Time(tomorrow,format='datetime')
     endsemester = Time('2017-11-30T00:00:00', format='isot')
@@ -341,7 +342,7 @@ def main():
     else:
         print("Plan files don't exist, or cannot restore. Creating plan files. Setting up observing blocks.")
         # Store the requested observing blocks for ALL targets by date
-        obs_date_blocks = {}
+        obs_date_blocks = OrderedDict()
         target_structures = {}
 
         processPool = multiprocessing.Pool(nproc)
@@ -360,29 +361,32 @@ def main():
         for res in multi_res:
             if res is not None:
                 out = res.get()
-        sys.exit(-1)
- #               name = out['name']
- #               plan_target = out['plan_target']
- #               thismolecule = out['molecule']
- #               thistarget   = out['target']
- #
- #               target_structures[name] = plan_target
- #               target_info[name] = {'target':thistarget, 'molecule':thismolecule}
- #               target_obs_date_blocks = out['blocks']
- #               for to in target_obs_date_blocks:
- #                   blocks = obs_date_blocks.get(to,None)
- #                   if blocks is None:
- #                       blocks = []
- #                   blocks += target_obs_date_blocks[to]
- #                   obs_date_blocks[to] = blocks
- #       obsplan = {'target_structures':target_structures, 'obs_date_blocks':obs_date_blocks}
+                name = out['name']
+                plan_target = out['plan_target']
+                thismolecule = out['molecule']
+                thistarget   = out['target']
 
- #       # save the configuration
- #       with open('obsplan_config_%s.json'%today.isot, 'w') as outpkl:
- #           json.dump(target_info, outpkl, indent=2, sort_keys=True)
- #
- #       with open('obsplan_config_%s.pkl'%today.isot, 'w') as outpkl:
- #           pickle.dump(obsplan, outpkl)
+                target_structures[name] = plan_target
+                target_info[name] = {'target':thistarget, 'molecule':thismolecule}
+                target_obs_date_blocks = out['blocks']
+                if target_obs_date_blocks is None:
+                 # the object was never scheduled
+                 continue
+
+                 for to in target_obs_date_blocks:
+                    blocks = obs_date_blocks.get(to,None)
+                    if blocks is None:
+                        blocks = []
+                    blocks += target_obs_date_blocks[to]
+                    obs_date_blocks[to] = blocks
+        obsplan = {'target_structures':target_structures, 'obs_date_blocks':obs_date_blocks}
+
+        # save the configuration
+        with open('obsplan_config_%s.json'%today.iso.replace(' ','T'), 'w') as outpkl:
+            json.dump(target_info, outpkl, indent=2, sort_keys=True)
+
+        with open('obsplan_config_%s.pkl'%today.iso.replace(' ','T'), 'w') as outpkl:
+           pickle.dump(obsplan, outpkl)
 
  #   # assign a color to each target
  #   color=cm.viridis(np.linspace(0,1,len(targets)))
