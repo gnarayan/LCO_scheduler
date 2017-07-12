@@ -8,7 +8,7 @@ import cPickle as pickle
 import urllib
 import httplib
 import warnings
-warnings.simplefilter('always')
+warnings.simplefilter('once')
 from collections import Counter, OrderedDict
 import datetime
 import numpy as np
@@ -103,7 +103,7 @@ def schedule_and_plot_night(date, blocks, plan_sites, plan_sched, target_structu
             axes.set_title(site.name)
             axes.axhline(2.0,linestyle=':')
     #endsite
-    fig.suptitle('Observations on %s'%(date), size='x-large')    
+    fig.suptitle('Observations on %s'%(date), size='x-large')
     fig.tight_layout()
     fig.subplots_adjust(top=0.90)
     fig.savefig('%s_schedule.pdf'%(date))
@@ -112,94 +112,143 @@ def schedule_and_plot_night(date, blocks, plan_sites, plan_sched, target_structu
 
 
 
-def setup_target(this_target, today, endsemester, target, molecule, coord_equinox, read_out, plan_sites):
+def setup_target(this_target, startsemester, endsemester, target, molecule, coord_equinox, read_out, plan_sites, verbose=False):
 
-
-    #TODO for every target, 
-    # check target observability from today until Nov 30 2017
-    # break from first observable until last observable into log spaced blocks 
-    # number of blocks is dependent of percentage of total time observable
-    # for first obs date until start of next block add window to schedule every day 
-    # so now for the same site, there can be multiple windows per block  on differnt days
-    # now need to keep a track of date block and target
-
+    # we used to have to do some ugly string conversion here, but now we just fix it in the text file input
     nice_target_name = this_target.targetname
-    dt = endsemester - today 
-    n_split_full = 19
 
-
-    
-
-    
-    # adjust dates on which the moon illumination is too high
-    moon_illum = np.array([ap.moon_illumination(Time(x, format='mjd')) for x in obj.Time])
-    if this_target.gmag > 18.4:
-        moon_illum_limit = 0.25
-    else:
-        moon_illum_limit = 0.65
-
-    mask = (moon_illum > moon_illum_limit)
-    if np.any(mask):
-        message = 'Some requested dates for %s have high moon illumination fraction. Adjusting'%nice_target_name
-        warnings.warn(message, RuntimeWarning)
-    while np.any(mask):
-        obj.Time[mask] += 1. #only adjust those days with high moon illumination into the future
-        moon_illum = np.array([ap.moon_illumination(Time(x, format='mjd')) for x in obj.Time])
-        mask = (moon_illum > moon_illum_limit)
-    
-    # Make sure the observations are sorted after all this shenanigans
-    obj.sort(order='Time')
-    
-    # Instead, we'll get the dates for the observations
-    # and the number of observations requested on this date
-    obs_dates = [Time(x, format='mjd') for x in obj.Time]
-    
-    # Fix the date for any incomplete observations in the past
-    for i in range(len(obs_dates)):
-        if obs_dates[i] < today:
-            message = '%s requested date %s is earlier than today %s. Moving to future'\
-                    %(nice_target_name, obs_dates[i].isot, today.isot)
-            warnings.warn(message)
-            obs_dates[i] = today + max_window*u.day
-    obs_ctr = OrderedCounter(x.isot.split('T')[0] for x in obs_dates)
-    
-    #convert the coordinates to decimal degrees (for LCO and astroplan)
-    position = (this_target.RA, this_target.DEC)
-    dec_pos = c(*position, unit=(u.hourangle, u.deg))
+    # convert the coordinates to decimal degrees (for LCO and astroplan)
+    position = (this_target.RA, this_target.Dec)
+    dec_pos = c(*position, unit=(u.deg, u.deg))
     rad = dec_pos.ra.value
     decd= dec_pos.dec.value
-    plan_target = ap.FixedTarget(name=nice_target_name, coord=dec_pos)
-    
-    # the exposure times are designed with 60s slew + 15s settle + 51 second readout
-    # the transitioner doesn't know anything about the other objects that LCOGT will schedule
-    # it doesn't have a simple fixed overhead for each block (as opposed to each exoposure)
-    # so, instead compute an exposure time that will fill the block with the slew + settle included
-    n_split = target_nsplit.get(nice_target_name, 3)
-    optimum_exposure = round((this_target.time_ep - n_split*47.)/n_split)
-    requested_exposure = np.floor((this_target.time_ep - n_split*47. - 75.)/n_split)
-    
-    #setup the target block
+
+    # setup the target block of the scheduler request
     target['name'] = nice_target_name
     target['ra'] = rad
     target['dec'] = decd
     target['epoch'] = coord_equinox
-    
+
+    # create a target for astroplan
+    plan_target = ap.FixedTarget(name=nice_target_name, coord=dec_pos)
+    print plan_target
+
+    # we want this many observations split over the window
+    n_full = 19
+
+    # as the target gets fainter, we actually need to split the exposures up a
+    # bit more, so the individual ones don't get too long
+    # this guards against guiding failure, phase blurring, cosmic rays, streaks...
+    if this_target.gmag > 19.1:
+        n_split = 4
+    else:
+        n_split = 3
+
+    # the exposure times are designed with 60s slew + 15s settle + 51 second readout
+    # the transitioner doesn't know anything about the other objects that LCOGT will schedule
+    # it doesn't have a simple fixed overhead for each block (as opposed to each exoposure)
+    # so, instead compute an exposure time that will fill the block with the slew + settle included
+    # this is some stupid polynomial fit for the total exptime including the overhead that gives us a reasonable S/N
+    # it's only valid from g=16 to 20 mag
+    exptime_poly = np.array([388.45024069, -12434.51218072, 100228.87477506])
+    exptime_total = np.polyval(exptime_poly, this_target.gmag)
+    optimum_exposure = round((exptime_total - n_split*47.)/n_split)
+    requested_exposure = np.floor((exptime_total - n_split*47. - 75.)/n_split)
+
     #setup the molecule block
     molecule['exposure_count'] = n_split
     molecule['exposure_time'] = requested_exposure
-    
-    target_obs_date_blocks = {}
-    for to, n_blocks in obs_ctr.iteritems():
+
+    # get a list of the available dates from the start to the end of the semester
+    avail_dates =Time(np.arange(startsemester.mjd, endsemester.mjd+1, 1.), format='mjd')
+
+    # kick out dates on which the moon illumination is too high
+    moon_illum = np.array([ap.moon_illumination(date) for date in avail_dates])
+    if this_target.gmag > 18.4:
+        moon_illum_limit = 0.40
+    else:
+        moon_illum_limit = 0.85
+    mask = (moon_illum > moon_illum_limit)
+    if np.any(mask):
+        if verbose:
+            message = 'Some requested dates for %s have high moon illumination fraction. Kicking them.'%nice_target_name
+            warnings.warn(message, RuntimeWarning)
+        avail_dates = avail_dates[~mask]
+
+    # in a perfect world, the target would be up for the entire useful window
+    # in which case we want to split n_split_full observations over n_full_dates
+    n_full_dates = len(avail_dates)
+
+    # in reality though, targets rise and set below horizons, so we may have less than the full window
+    # get the rise and set times of the target for each date, and check if it's still night
+    horizon = -18*u.deg
+    mask = []
+    for date in avail_dates:
+        good_flag = False
+        for site in plan_sites:
+            target_rise_time = site.target_rise_time(date, plan_target, which='nearest', horizon=horizon)
+            if target_rise_time.jd < 0:
+                # the target never rises on this date at this site
+                # move on to the next site
+                if verbose:
+                    message = "Target {} does not cross horizon, so we get {:.3f} for rise time.\
+                            Skipping date {} at site {}".format(nice_target_name, target_rise_time.jd, date.iso.split(" ")[0], site.name)
+                    warnings.warn(message, RuntimeWarning)
+                continue
+            target_set_time  = site.target_set_time(target_rise_time, plan_target, which='next', horizon=horizon)
+            test_times = Time(np.arange(target_rise_time.mjd+0.05, target_set_time.mjd+0.1-0.05, 0.1), format='mjd')
+
+            # note that is_night doesn't seem to like array times
+            night_check = [site.is_night(t, horizon=horizon) for t in test_times]
+            night_check = np.array(night_check)
+
+            if np.any(night_check):
+                # this target is up for at least some fraction of the night at some site
+                # it's therefore a useful night for this target
+                good_flag = True
+                break
+            #end if
+        #end for site
+        # no site had this target up at the test_times at night - date is not useable
+        mask.append(good_flag)
+    #end for date
+    mask = np.array(mask)
+    avail_dates = avail_dates[mask]
+
+    # how many observations can we reasonably squeeze into this reduced window
+    n_good_dates = len(avail_dates)
+
+    print "Fraction of moon-illum controlled window that the target is observable: {:.3f}".format(1.*n_good_dates/n_full_dates)
+    n_blocks = np.round(n_full*(1.*n_good_dates / n_full_dates))
+    if n_good_dates == 0 or n_blocks==0:
+        # we can't schedule this target - it isn't up at all
+        out = {'target':dict(target), 'molecule':dict(molecule), 'name':nice_target_name,\
+            'blocks':None, 'plan_target':plan_target}
+        return out
+
+    print "Splitting window into {:n} blocks".format(n_blocks)
+
+    # we then need to split the available dates into roughly equal chunks
+    date_blocks = np.array_split(avail_dates, n_blocks)
+    for block_num, block in enumerate(date_blocks):
+        print block_num, [x.iso.split(' ')[0] for x in block]
+
+    # this stores the blocks by date for each target, along with the block number
+    # this way if we schedule the same block on different days
+    # we can just append them to the same window in the request
+    target_obs_date_blocks = OrderedDict()
+    for block_num, this_block_dates in enumerate(date_blocks):
         # setup the observing blocks we need
-        blocks = target_obs_date_blocks.get(to,None)
-        if blocks is None:
-            blocks = []
-        for i in range(n_blocks):
-            b = ap.ObservingBlock.from_exposures(plan_target, 1, optimum_exposure*u.second,\
-                    n_split, read_out,configuration={'filter':"SDSS-g'"})
-            blocks.append(b)
-        target_obs_date_blocks[to] = blocks
-    #end for nights
+        b = ap.ObservingBlock.from_exposures(plan_target, 1, optimum_exposure*u.second,\
+                n_split, read_out,configuration={'filter':"SDSS-g'"})
+        for date in this_block_dates:
+            short_date = str(date.iso.split(' ')[0])
+            blocks = target_obs_date_blocks.get(short_date, None)
+            if blocks is None:
+                blocks = []
+            blocks.append((block_num, nice_target_name, b))
+            target_obs_date_blocks[short_date] = blocks
+    #end for blocks
     out = {'target':dict(target), 'molecule':dict(molecule), 'name':nice_target_name,\
             'blocks':target_obs_date_blocks, 'plan_target':plan_target}
     return out
@@ -269,10 +318,8 @@ def main():
     startsemester  = Time(tomorrow,format='datetime')
     endsemester = Time('2017-11-30T00:00:00', format='isot')
 
-    print tomorrow.isot
-    print endsemester.isot
-    sys.exit(-1)
-
+    print "Start of window ",startsemester.to_datetime(), startsemester.jd
+    print "End of window   ",endsemester.to_datetime(), endsemester.jd
 
     ############################ SETUP TIME-DEPENDENT REQUESTS ############################
 
@@ -300,23 +347,25 @@ def main():
         processPool = multiprocessing.Pool(nproc)
         lock = multiprocessing.Lock()
 
- #       multi_res = []
- #       for this_target in targets:
- #           args = (this_target, today, endsemester, target, molecule, coord_equinox, read_out, plan_sites)
- #           res  = processPool.apply_async(setup_target, args)
- #           multi_res.append(res)
- #       #end for target
+        multi_res = []
+        for this_target in targets:
+            args = (this_target, startsemester, endsemester, target, molecule, coord_equinox, read_out, plan_sites)
+            #setup_target(*args)
+            res  = processPool.apply_async(setup_target, args)
+            multi_res.append(res)
+        #end for target
 
- #       processPool.close()
- #       processPool.join()
- #       for res in multi_res:
- #           if res is not None:
- #               out = res.get()
+        processPool.close()
+        processPool.join()
+        for res in multi_res:
+            if res is not None:
+                out = res.get()
+        sys.exit(-1)
  #               name = out['name']
  #               plan_target = out['plan_target']
  #               thismolecule = out['molecule']
  #               thistarget   = out['target']
- #       
+ #
  #               target_structures[name] = plan_target
  #               target_info[name] = {'target':thistarget, 'molecule':thismolecule}
  #               target_obs_date_blocks = out['blocks']
@@ -327,44 +376,44 @@ def main():
  #                   blocks += target_obs_date_blocks[to]
  #                   obs_date_blocks[to] = blocks
  #       obsplan = {'target_structures':target_structures, 'obs_date_blocks':obs_date_blocks}
-        
+
  #       # save the configuration
  #       with open('obsplan_config_%s.json'%today.isot, 'w') as outpkl:
  #           json.dump(target_info, outpkl, indent=2, sort_keys=True)
- #       
+ #
  #       with open('obsplan_config_%s.pkl'%today.isot, 'w') as outpkl:
  #           pickle.dump(obsplan, outpkl)
 
- #   # assign a color to each target 
+ #   # assign a color to each target
  #   color=cm.viridis(np.linspace(0,1,len(targets)))
  #   target_colors = dict(zip(target_structures.keys(), color))
 
     ############################ SCHEDULE REQUESTS ############################
 
 #    nights = sorted(obs_date_blocks.keys())
-# 
+#
 #    date_schedule_files = glob.glob('date_schedule_*.pkl')
 #    if len(date_schedule_files) > 0 and restore:
 #        date_schedule_files = sorted(date_schedule_files)
 #        newest_date_schedule = date_schedule_files[-1]
 #        print("Plan files exist. Restoring %s"%newest_date_schedule)
-# 
+#
 #        with open(newest_date_schedule, 'r') as f:
 #            date_site_schedules = pickle.load(f)
-#    else:        
+#    else:
 #        # save all the schedules for each date and site
 #        date_site_schedules = {}
-#        
+#
 #        processPool = multiprocessing.Pool(nproc)
 #        lock = multiprocessing.Lock()
-#        
+#
 #        multi_res = []
 #        for date in nights:
 #            blocks = obs_date_blocks[date]
 #            args = (date, blocks, plan_sites, plan_sched, target_structures, target_colors)
 #            res  = processPool.apply_async(schedule_and_plot_night, args)
 #            multi_res.append(res)
-#        
+#
 #        processPool.close()
 #        processPool.join()
 #        for res in multi_res:
@@ -375,7 +424,7 @@ def main():
 #                except Exception, e:
 #                    warnings.warn('Something threw this bloody exception %s'%e)
 #                    pass
-# 
+#
 #        with open('date_schedule_%s.pkl'%today.isot, 'w') as outpkl:
 #            pickle.dump(date_site_schedules, outpkl)
     ############################ CONSTRUCT LCO FORMAT REQUESTS FROM SCHEDULE  ############################
@@ -414,7 +463,7 @@ def main():
 #                target = target_info[targetname]['target']
 #                molecule = target_info[targetname]['molecule']
 #                count = target_obs_ctr.get(targetname, 1)
-# 
+#
 #                #setup the request
 #                request = {
 #                    "constraints" : constraints,
@@ -426,7 +475,7 @@ def main():
 #                    "type" : "request",
 #                    "windows" : windows,
 #                    }
-# 
+#
 #                user_request = {
 #                    "operator" : "single",
 #                    "requests" : [request],
@@ -434,7 +483,7 @@ def main():
 #                    "type" : "compound_request",
 #                    "group_id":'%s_%02i_%s'%(targetname, count, date)
 #                    }
-# 
+#
 #                #convert the request to JSON
 #                json_user_request = json.dumps(user_request)
 #                # save the request to a file for a now
@@ -446,32 +495,32 @@ def main():
 #                                   'password': proposal['password'],
 #                                                  'proposal': proposal['proposal_id'],
 #                                                                 'request_data' : json_user_request})
-# 
+#
 #                print params
-# 
+#
 #                #submit the request
 #                headers = {'Content-type': 'application/x-www-form-urlencoded'}
 #                conn = httplib.HTTPSConnection("lco.global")
 #                conn.request("POST", "/observe/service/request/submit", params, headers)
 #                conn_response = conn.getresponse()
-# 
+#
 #                # The status can tell you if sending the request failed or not.
 #                # 200 or 203 would mean success, 400 or anything else fail
 #                status_code = conn_response.status
-# 
+#
 #                # If the status was a failure, the response text is a reason why it failed
 #                # If the status was a success, the response text is tracking number of the submitted request
 #                response = conn_response.read()
 #                print response
-# 
+#
 #                response = json.loads(response)
-# 
+#
 #                if status_code == 200:
 #                    try:
 #                        print "http://lco.global/observe/request/" + response['id']
 #                    except KeyError:
 #                        print response['error']
-# 
+#
 #            #endelse
 #        #end requested blocks on this date
 #        unobs_date_blocks[date] = unscheduled_blocks
@@ -479,8 +528,8 @@ def main():
 #    unobsplan = {'target_obs_ctr':target_obs_ctr, 'unobs_date_blocks':unobs_date_blocks}
 #    with open('unscheduled_obs_%s.pkl'%today.isot, 'w') as outpkl:
 #        pickle.dump(unobsplan, outpkl)
-# 
-        
+#
+
 
 
 if __name__=='__main__':
