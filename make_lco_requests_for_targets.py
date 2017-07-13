@@ -144,16 +144,13 @@ def setup_target(this_target, startsemester, endsemester, target, molecule, coor
     else:
         n_split = 3
 
-    # the exposure times are designed with 60s slew + 15s settle + 51 second readout
-    # the transitioner doesn't know anything about the other objects that LCOGT will schedule
-    # it doesn't have a simple fixed overhead for each block (as opposed to each exoposure)
-    # so, instead compute an exposure time that will fill the block with the slew + settle included
-    # this is some stupid polynomial fit for the total exptime including the overhead that gives us a reasonable S/N
-    # it's only valid from g=16 to 20 mag
-    exptime_poly = np.array([388.45024069, -12434.51218072, 100228.87477506])
-    exptime_total = np.polyval(exptime_poly, this_target.gmag)
-    optimum_exposure = round((exptime_total - n_split*47.)/n_split)
-    requested_exposure = np.floor((exptime_total - n_split*47. - 75.)/n_split)
+    # compute a reasonable exposure time
+    # this is a deg=2 polynomial fit for gmag vs the log (base 10) total exptime
+    # it's only valid from g=15 to 20 maag (which is really the range we care about)
+    # this gives us a reasonable S/N ~100 at airmass 1.3. We split this into n_split exposures
+    exptime_poly = np.array([-0.04543623, 1.8909311, -16.43566578])
+    exptime_total = 10.**np.polyval(exptime_poly, this_target.gmag)
+    requested_exposure = round(exptime_total/n_split)
 
     #setup the molecule block
     molecule['exposure_count'] = n_split
@@ -239,7 +236,7 @@ def setup_target(this_target, startsemester, endsemester, target, molecule, coor
     target_obs_date_blocks = OrderedDict()
     for block_num, this_block_dates in enumerate(date_blocks):
         # setup the observing blocks we need
-        b = ap.ObservingBlock.from_exposures(plan_target, 1, optimum_exposure*u.second,\
+        b = ap.ObservingBlock.from_exposures(plan_target, 1, requested_exposure*u.second,\
                 n_split, read_out,configuration={'filter':"SDSS-g'"})
         for date in this_block_dates:
             short_date = str(date.iso.split(' ')[0])
@@ -263,7 +260,8 @@ def main():
 
     coord_equinox= 2000.
 
-    constraints = {'max_airmass': 2.0}
+    constraints = {'max_airmass': 1.6,\
+                   'min_lunar_distance':30}
 
     location    = {'telescope_class':'1m0'}
 
@@ -301,9 +299,10 @@ def main():
     # there is also the Haleakala site, but it doesn't have a 1meter
     site_names  = ['sso', 'saao', 'ctio', 'mcdonald']
     plan_sites  = [ap.Observer.at_site(site) for site in site_names]
-    slew_rate = 5.*u.deg/u.second # slew speed is maximum of 6 degrees per sec - assume it doesn't operate at that
-    read_out  = 47.*u.second      # SINISTRO readout time is 47 seconds
-    plan_transitioner = ap.Transitioner(slew_rate, None)
+
+    slew_rate = 5.*u.deg/u.second # maximum slew speed is maximum of 6 deg/sec. Assume it doesn't operate at that.
+    read_out  = 42.*u.second      # SINISTRO readout time is 42 seconds
+    plan_transitioner = ap.Transitioner(slew_rate, None) # the second None is for filter change ovehead.
     # constrain the observations to be within the max airmass limit
     # and at night (duh)
     plan_constraints = [ap.AirmassConstraint(constraints['max_airmass'], boolean_constraint=False),\
@@ -342,7 +341,7 @@ def main():
     else:
         print("Plan files don't exist, or cannot restore. Creating plan files. Setting up observing blocks.")
         # Store the requested observing blocks for ALL targets by date
-        obs_date_blocks = OrderedDict()
+        obs_date_blocks = {}
         target_structures = {}
 
         processPool = multiprocessing.Pool(nproc)
@@ -370,16 +369,17 @@ def main():
                 target_info[name] = {'target':thistarget, 'molecule':thismolecule}
                 target_obs_date_blocks = out['blocks']
                 if target_obs_date_blocks is None:
-                 # the object was never scheduled
-                 continue
-
-                 for to in target_obs_date_blocks:
+                    # the object was never scheduled
+                    continue
+                for to in target_obs_date_blocks:
+                    print target_obs_date_blocks[to]
                     blocks = obs_date_blocks.get(to,None)
                     if blocks is None:
                         blocks = []
                     blocks += target_obs_date_blocks[to]
                     obs_date_blocks[to] = blocks
         obsplan = {'target_structures':target_structures, 'obs_date_blocks':obs_date_blocks}
+        print len(obs_date_blocks.keys()), " keys"
 
         # save the configuration
         with open('obsplan_config_%s.json'%today.iso.replace(' ','T'), 'w') as outpkl:
@@ -388,36 +388,39 @@ def main():
         with open('obsplan_config_%s.pkl'%today.iso.replace(' ','T'), 'w') as outpkl:
            pickle.dump(obsplan, outpkl)
 
- #   # assign a color to each target
- #   color=cm.viridis(np.linspace(0,1,len(targets)))
- #   target_colors = dict(zip(target_structures.keys(), color))
+    # assign a color to each target
+    color=cm.viridis(np.linspace(0,1,len(targets)))
+    target_colors = dict(zip(target_structures.keys(), color))
 
     ############################ SCHEDULE REQUESTS ############################
 
-#    nights = sorted(obs_date_blocks.keys())
-#
-#    date_schedule_files = glob.glob('date_schedule_*.pkl')
-#    if len(date_schedule_files) > 0 and restore:
-#        date_schedule_files = sorted(date_schedule_files)
-#        newest_date_schedule = date_schedule_files[-1]
-#        print("Plan files exist. Restoring %s"%newest_date_schedule)
-#
-#        with open(newest_date_schedule, 'r') as f:
-#            date_site_schedules = pickle.load(f)
-#    else:
-#        # save all the schedules for each date and site
-#        date_site_schedules = {}
-#
+    nights = sorted(obs_date_blocks.keys())
+    print obs_date_blocks
+
+    date_schedule_files = glob.glob('date_schedule_*.pkl')
+    if len(date_schedule_files) > 0 and restore:
+        date_schedule_files = sorted(date_schedule_files)
+        newest_date_schedule = date_schedule_files[-1]
+        print("Plan files exist. Restoring %s"%newest_date_schedule)
+
+        with open(newest_date_schedule, 'r') as f:
+            date_site_schedules = pickle.load(f)
+    else:
+        # save all the schedules for each date and site
+        date_site_schedules = {}
+
 #        processPool = multiprocessing.Pool(nproc)
 #        lock = multiprocessing.Lock()
-#
+
 #        multi_res = []
-#        for date in nights:
-#            blocks = obs_date_blocks[date]
-#            args = (date, blocks, plan_sites, plan_sched, target_structures, target_colors)
+        for date in nights:
+            entries = obs_date_blocks[date]
+            blocks = [x[2] for x in entries]
+            args = (date, blocks, plan_sites, plan_sched, target_structures, target_colors)
+            schedule_and_plot_night(*args)
 #            res  = processPool.apply_async(schedule_and_plot_night, args)
 #            multi_res.append(res)
-#
+
 #        processPool.close()
 #        processPool.join()
 #        for res in multi_res:
@@ -483,7 +486,7 @@ def main():
 #                user_request = {
 #                    "operator" : "single",
 #                    "requests" : [request],
-#                    "ipp_value": 1.0,
+#                    "ipp_value": 1.05,
 #                    "type" : "compound_request",
 #                    "group_id":'%s_%02i_%s'%(targetname, count, date)
 #                    }
