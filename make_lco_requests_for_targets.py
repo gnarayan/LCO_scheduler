@@ -25,6 +25,7 @@ class OrderedCounter(Counter, OrderedDict):
 
 
 def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=False):
+    verbose = True
 
     # we used to have to do some ugly string conversion here, but now we just fix it in the text file input
     nice_target_name = this_target.targetname
@@ -100,7 +101,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     # in reality though, targets rise and set below horizons, so we may have less than the full window
     # get the rise and set times of the target for each date, and check if it's still night
     horizon = -18*u.deg
-    horizon2 = 60*u.deg
+    horizon2 =  30*u.deg
     mask = []
     for date in avail_dates:
         nice_date = date.iso.split(' ')[0]
@@ -206,6 +207,12 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     # how many observations can we reasonably squeeze into this reduced window
     n_good_dates = len(avail_dates)
 
+    if n_good_dates == 0:
+        # we can't schedule this target - it isn't up at all
+        out = {'target':dict(target), 'molecule':dict(molecule), 'name':nice_target_name,\
+                'plan_target':plan_target, 'requests':[]}
+        return out
+
     #print "Fraction of moon-illum controlled window that target {} is observable: {:.3f}".format(nice_target_name, 1.*n_good_dates/n_full_dates)
     date_fraction =  (1.*n_good_dates / n_full_dates)
 
@@ -217,16 +224,12 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     else:
         date_fraction = 0.4
     n_blocks = np.round(n_full*date_fraction)
+    if n_blocks  < 2:
+        b_blocks = 2
 
-    if n_good_dates == 0:
-        # we can't schedule this target - it isn't up at all
-        out = {'target':dict(target), 'molecule':dict(molecule), 'name':nice_target_name,\
-                'plan_target':plan_target, 'requests':[]}
-        return out
+    if len(avail_dates) < n_blocks:
+        n_blocks = len(avail_dates)
 
-    #print "Splitting window into {:n} blocks".format(n_blocks)
-
-    # we then need to split the available dates into roughly equal chunks
     date_blocks = np.array_split(avail_dates, n_blocks)
 
     ############################ CONSTRUCT LCO FORMAT REQUESTS FROM SCHEDULE  ############################
@@ -341,20 +344,16 @@ def main():
 
     ############################ SETUP TIME-DEPENDENT REQUESTS ############################
 
-    restore=True
-    obsplan_files = glob.glob('obsplan_config_*.json')
-    if len(obsplan_files) > 0 and restore:
-        obsplan_files = sorted(obsplan_files)
-        newest_obsplan = obsplan_files[-1]
-        print("Plan files exist. Restoring %s/pkl"%newest_obsplan)
-        with open(newest_obsplan, 'r') as f:
-            target_info = json.load(f)
+#    restore=True
+#    obsplan_files = glob.glob('obsplan_config_*.json')
+#    if len(obsplan_files) > 0 and restore:
+#        obsplan_files = sorted(obsplan_files)
+#        newest_obsplan = obsplan_files[-1]
+#        print("Plan files exist. Restoring %s/pkl"%newest_obsplan)
+#        with open(newest_obsplan, 'r') as f:
+#            target_info = json.load(f)
 
-    else:
-        print("Plan files don't exist, or cannot restore. Creating plan files. Setting up observing blocks.")
 
-        # Store the requested observing blocks for ALL targets by date
-        target_structures = {}
 
         processPool = multiprocessing.Pool(nproc)
         lock = multiprocessing.Lock()
