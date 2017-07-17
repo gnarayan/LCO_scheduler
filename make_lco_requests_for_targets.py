@@ -35,6 +35,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     rad = dec_pos.ra.value
     decd= dec_pos.dec.value
 
+
     # create a target for astroplan
     plan_target = ap.FixedTarget(name=nice_target_name, coord=dec_pos)
     print plan_target
@@ -58,6 +59,28 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     exptime_total = 10.**np.polyval(exptime_poly, this_target.gmag)
     requested_exposure = round(exptime_total/n_split)
 
+    coord_equinox= 2000.
+
+    target = {'name':nice_target_name,\
+                'type':'SIDEREAL',\
+                'ra':rad,\
+                'dec':decd,\
+                'epoch':coord_equinox,\
+                'equinox':'J2000',\
+                'coordinate_system':'ICRS'}
+
+    molecule    = {'ag_mode':'ON',\
+                    'ag_name':'',\
+                    'bin_x':1,\
+                    'bin_y':1,\
+                    'defocus':0.0,\
+                    'exposure_count':n_split,\
+                    'exposure_time':requested_exposure,\
+                    'fill_window':False,\
+                    'filter':"gp",\
+                    'instrument_name':'1M0-SCICAM-SINISTRO',\
+                    'type':'EXPOSE'}
+
     # get a list of the available dates from the start to the end of the semester
     avail_dates =Time(np.arange(startsemester.mjd, endsemester.mjd+1, 1.), format='mjd')
 
@@ -77,6 +100,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     # in reality though, targets rise and set below horizons, so we may have less than the full window
     # get the rise and set times of the target for each date, and check if it's still night
     horizon = -18*u.deg
+    horizon2 = 60*u.deg
     mask = []
     for date in avail_dates:
         nice_date = date.iso.split(' ')[0]
@@ -88,28 +112,38 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
             sun_rise_time = site.sun_rise_time(sun_set_time, which='next', horizon=horizon) - 5*u.minute
 
             # when does the target rise and set
-            target_rise_time = site.target_rise_time(sun_set_time, plan_target, which='nearest', horizon=horizon) + 5*u.minute
+            target_rise_time = site.target_rise_time(sun_set_time, plan_target, which='nearest', horizon=horizon2) + 5*u.minute
+
+            # deal with edge cases where we get the rise time on the next day, and really the target is up before the sunset
+            if sun_set_time - target_rise_time >= 0.5*u.day:
+                target_rise_time = site.target_rise_time(sun_set_time+0.45*u.day, plan_target, which='nearest', horizon=horizon2) + 5*u.minute
+            # deal with edge case where the target rise and sunset are really close to each other in time
+            if target_rise_time - sun_set_time > 0.95*u.day:
+                target_rise_time = site.target_rise_time(sun_set_time-0.1*u.day, plan_target, which='nearest', horizon=horizon2) + 5*u.minute
+            if target_rise_time > sun_rise_time:
+                target_rise_time = site.target_rise_time(sun_rise_time, plan_target, which='previous', horizon=horizon2) + 5*u.minute
+
             if target_rise_time.jd < 0:
                 # the target never rises on this date at this site
                 # move on to the next site
-                message = "Target {} does not cross horizon, so we get {:.3f} for rise time.\
-                        Skipping date {} at site {}".format(nice_target_name,\
-                        target_rise_time.jd, date.iso.split(" ")[0], site.name)
-                warnings.warn(message, RuntimeWarning)
+                if verbose:
+                    message = "Target {} does not cross horizon, so we get {:.3f} for rise time.\
+                            Skipping date {} at site {}".format(nice_target_name,\
+                            target_rise_time.jd, date.iso.split(" ")[0], site.name)
+                    warnings.warn(message, RuntimeWarning)
                 continue
-            target_set_time  = site.target_set_time(sun_set_time, plan_target, which='next', horizon=horizon) - 5*u.minute
+            target_set_time  = site.target_set_time(target_rise_time, plan_target, which='next', horizon=horizon2) - 5*u.minute
 
             # make sure the observing window is at night
             if (target_rise_time > sun_rise_time):
-                print("Rise: {} {} - Set: {} {}").format(\
-                    target_rise_time.iso, sun_set_time.iso, target_set_time.iso, sun_rise_time.iso)
-                message = "Target {} not observable. Skipping date {} at site {}".format(nice_target_name, nice_date, site.name)
-                warnings.warn(message, RuntimeWarning)
+                if verbose:
+                    print("Rise (T|S): {} {}\nSet  (T|S): {} {}").format(\
+                        target_rise_time.iso, sun_set_time.iso, target_set_time.iso, sun_rise_time.iso)
+                    message = "Target {} not observable. Skipping date {} at site {}".format(nice_target_name, nice_date, site.name)
+                    warnings.warn(message, RuntimeWarning)
                 continue
 
             # define window by (sunset time, target rise time) and min(sunrise time, target_set time)
-            #print sun_set_time.iso, sun_rise_time.iso, "Sun vis window"
-            #print target_rise_time.iso, target_set_time.iso, "Target vis window"
             window_start_time = np.max([sun_set_time, target_rise_time])
             window_end_time   = np.min([sun_rise_time, target_set_time])
             time_grid = window_start_time + (window_end_time - window_start_time)*np.linspace(0, 1, 5)
@@ -120,27 +154,41 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
                 moon_illum_time = time_grid[rise_ind]
                 moon_illum = ap.moon_illumination(moon_illum_time)
                 if moon_illum > moon_illum_limit:
-                    message = "Moon is up ({}) and illumination is too high for target {} w/ g{:.3f} at site {}"\
-                            .format(moon_alt[rise_ind], nice_target_name, this_target.gmag, site.name)
+                    if verbose:
+                        message = "Moon is up ({}) and illumination {:.3f} is too high for target {} w/ g {:.3f} at site {}"\
+                            .format(moon_alt[rise_ind], moon_illum, nice_target_name, this_target.gmag, site.name)
+                        warnings.warn(message, RuntimeWarning)
+                    continue
 
             # sanity checks for time
             if window_start_time > window_end_time:
-                print nice_target_name
-                print site.name
-                print nice_date
-                print sun_set_time.iso, sun_rise_time.iso, "Sun vis window"
-                print target_rise_time.iso, target_set_time.iso, "Target vis window"
-                message = "Huh... start after end {} {}".format(window_start_time, window_end_time)
-                raise ValueError(message)
+                if verbose:
+                    print nice_target_name
+                    print site.name
+                    print nice_date
+                    print sun_set_time.iso, sun_rise_time.iso, "Sun vis window"
+                    print target_rise_time.iso, target_set_time.iso, "Target vis window"
+                    message = "{} {} {}\nHuh... start after end {} {}".format(nice_target_name, site.name, nice_date, window_start_time.iso, window_end_time.iso)
+                    warnings.warn(message, RuntimeWarning)
+                continue
 
             if window_end_time - window_start_time > 1.*u.day:
-                print nice_target_name
-                print site.name
-                print nice_date
-                print sun_set_time.iso, sun_rise_time.iso, "Sun vis window"
-                print target_rise_time.iso, target_set_time.iso, "Target vis window"
-                message = "Huh... longer than a day {} {}".format(window_start_time, window_end_time)
-                raise ValueError(message)
+                if verbose:
+                    print nice_target_name
+                    print site.name
+                    print nice_date
+                    print sun_set_time.iso, sun_rise_time.iso, "Sun vis window"
+                    print target_rise_time.iso, target_set_time.iso, "Target vis window"
+                    message = "{} {} {}\nHuh... longer than a day {} {}".format(nice_target_name, site.name, nice_date, window_start_time.iso, window_end_time.iso)
+                    warnings.warn(message, RuntimeWarning)
+                continue
+
+            # if this window is too short for the observation
+            if window_end_time - window_start_time < exptime_total*u.second:
+                if verbose:
+                    message = 'Window too short for {} at {} ({},{})'.format(nice_target_name, site, window_start_time.iso, window_end_time.iso)
+                    warnings.warn(message, RuntimeWarning)
+                continue
 
             # it's therefore a useful night for this target
             target_date_sites[nice_date][site.name] = (window_start_time, window_end_time)
@@ -158,15 +206,25 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     # how many observations can we reasonably squeeze into this reduced window
     n_good_dates = len(avail_dates)
 
-    print "Fraction of moon-illum controlled window that target {} is observable: {:.3f}".format(nice_target_name, 1.*n_good_dates/n_full_dates)
-    n_blocks = np.round(n_full*(1.*n_good_dates / n_full_dates))
-    if n_good_dates == 0 or n_blocks==0:
+    #print "Fraction of moon-illum controlled window that target {} is observable: {:.3f}".format(nice_target_name, 1.*n_good_dates/n_full_dates)
+    date_fraction =  (1.*n_good_dates / n_full_dates)
+
+    # some logick to make sure we get a reasonable number of observations
+    if date_fraction > 0.85:
+        date_fraction = 1
+    elif 0.4 < date_fraction <= 0.85:
+        pass
+    else:
+        date_fraction = 0.4
+    n_blocks = np.round(n_full*date_fraction)
+
+    if n_good_dates == 0:
         # we can't schedule this target - it isn't up at all
         out = {'target':dict(target), 'molecule':dict(molecule), 'name':nice_target_name,\
                 'plan_target':plan_target, 'requests':[]}
         return out
 
-    print "Splitting window into {:n} blocks".format(n_blocks)
+    #print "Splitting window into {:n} blocks".format(n_blocks)
 
     # we then need to split the available dates into roughly equal chunks
     date_blocks = np.array_split(avail_dates, n_blocks)
@@ -176,32 +234,15 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     #setup the request
     windows = None
 
-    coord_equinox= 2000.
 
     constraints = {'max_airmass': 1.6,\
                    'min_lunar_distance':30}
+    if (1.*n_good_dates / n_full_dates) < 0.6:
+        constraints['max_airmass'] = 2.0
 
     location    = {'telescope_class':'1m0'}
 
-    molecule    = {'ag_mode':'ON',\
-                    'ag_name':'',\
-                    'bin_x':1,\
-                    'bin_y':1,\
-                    'defocus':0.0,\
-                    'exposure_count':n_split,\
-                    'exposure_time':requested_exposure,\
-                    'fill_window':False,\
-                    'filter':"gp",\
-                    'instrument_name':'1M0-SCICAM-SINISTRO',\
-                    'type':'EXPOSE'}
 
-    target = {'name':nice_target_name,\
-                'type':'SIDEREAL',\
-                'ra':rad,\
-                'dec':decd,\
-                'epoch':coord_equinox,\
-                'equinox':'J2000',\
-                'coordinate_system':'ICRS'}
 
     request = {
         "constraints" : constraints,
@@ -231,11 +272,11 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
             "ipp_value": 1.05,
             "submitter": "gnarayan",
             "observation_type":"NORMAL",
-            "group_id":'%s_%02i_%s'%(nice_target_name, block_num, nice_date)
+            "group_id":'%s_%02i'%(nice_target_name, block_num)
             }
 
-        out_json_file = 'LCO_json/%s_%02i_of_%02i_obs_%s.json'%(nice_target_name, block_num+1, n_blocks, nice_date)
-        print block_num, [x.iso.split(' ')[0] for x in this_block_dates]
+        out_json_file = 'LCO_json/%s_%02i_of_%02i.json'%(nice_target_name, block_num+1, n_blocks)
+        #print block_num, [x.iso.split(' ')[0] for x in this_block_dates]
 
 
         # loop over all the dates in this block
@@ -255,6 +296,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
 
         # update the requested window for this entire block
         request['windows'] = windows
+        request['observation_note'] = '%02i_of_%02i'%(block_num+1, n_blocks)
         user_request['requests'] = [request]
 
         #convert the request to JSON
@@ -290,7 +332,7 @@ def main():
 
     # The question is not where are we, but when are we?
     today = Time(datetime.datetime.now(), format='datetime')
-    tomorrow = datetime.datetime.fromordinal(datetime.datetime.now().toordinal() + 1)
+    tomorrow = datetime.datetime.fromordinal(datetime.datetime.now().toordinal() + 2)
     startsemester  = Time(tomorrow,format='datetime')
     endsemester = Time('2017-11-30T00:00:00', format='isot')
 
@@ -323,7 +365,6 @@ def main():
             #setup_target(*args)
             res  = processPool.apply_async(setup_target, args)
             multi_res.append(res)
-        #end for target
 
 
         processPool.close()
@@ -332,10 +373,6 @@ def main():
         for res in multi_res:
             if res is not None:
                 out = res.get()
-
-
-                
-
 
 
 if __name__=='__main__':
