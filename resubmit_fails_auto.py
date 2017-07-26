@@ -58,6 +58,7 @@ if __name__=='__main__':
             failed_filename = orig_request_file.replace('.json','_EXPIRED_{}.json'.format(today))
             os.rename(orig_request_file, failed_filename)
     
+        # what blocks are still pending for this target
         mask = (pending_targets_blocks.target == target)
         remaining_requests = len(pending_targets_blocks.blocks[mask])
         if remaining_requests == 0:
@@ -67,6 +68,7 @@ if __name__=='__main__':
         resub_blocks= [int(x) for x in pending_targets_blocks.blocks[mask]]
         resub_blocks = np.array(resub_blocks)
         resub_files = []
+        # get the corresponding requests for each pending block
         for resub_block in resub_blocks:
             resub_request_file_pattern = '{}_{:02n}_of_[0-9][0-9].json'.format(target, resub_block+1)
             resub_request_file_pattern = os.path.join('LCO_json',resub_request_file_pattern)
@@ -81,6 +83,7 @@ if __name__=='__main__':
             warnings.warn(message, RuntimeWarning)
             continue
 
+        # allow the user to pick which file they want
         ctr = 0
         state = False
         while((ctr < nfiles) & (~state)): 
@@ -91,25 +94,30 @@ if __name__=='__main__':
             _, fileid, _, totalid = resub_file.replace('.json','').rsplit('_',3)
             resub_observation_note = '{:02n}_of_{}'.format(int(block_num)+1, totalid)
 
+            # make sure the output filename for this new request matches the original
             orig_request_file = resub_file.replace('{:02n}_of_'.format(resub_block+1),'{:02n}_of_'.format(int(block_num) + 1))
             out_json_file = orig_request_file
             infile = out_json_file
 
+            # check if we are OK to proceed
             message = 'Resubmitting {} as {}/{}, Proceed [y/n]? '.format(resub_file, resub_group_id, resub_observation_note)
             resp = input(message)
             if resp[0].lower() in ('t','y'):
                 state = True
                 pass
             elif resp[0].lower() in ('f','n'):
-                message = 'SKIPPING {}'.format(resub_group_id)
+                message = 'SKIPPING {}'.format(resub_file)
                 warnings.warn(message)
                 ctr += 1
                 continue
+
+        # the user skipped all the alternatives
         if state is False:
-            message = 'You did not accept any of the new proposed observations. Skipping'
+            message = 'You did not accept any of the new proposed observations for target {}. Skipping {}'.format(target, resub_group_id)
             warnings.warn(message)
             continue
 
+        # the user selected some file, so load the request
         a = None
         with open(resub_file, 'r') as resub:
             a = json.load(resub)
