@@ -9,9 +9,8 @@ import astropy.units as u
 if __name__=='__main__':
     exptime = 0                           
     token = sys.argv[1]
-    f = glob.glob('LCO_json/SDSSJ235144*json')
+    f = glob.glob('LCO_json/SDSSJ121405.11+453818.5_01_of_06.json')
     f = sorted(f)
-    f = f[6:]
     for infile in f:
         with open(infile, 'r') as indata:
             a = json.load(indata)
