@@ -29,6 +29,10 @@ if __name__=='__main__':
     failed_need_resub = fid - pid
     pending_targets_blocks = [x.rsplit('_',1) for x in pid]
     pending_targets_blocks = np.rec.fromrecords(pending_targets_blocks, names='target,blocks')
+    if len(failed_need_resub) == 0:
+        message = 'Nothing to process. Bye.'
+        print(message)
+        sys.exit(0)
 
     exptime = 0                           
     for f in failed_need_resub:
