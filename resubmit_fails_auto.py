@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import sys
 import os
 import numpy as np
@@ -34,12 +35,12 @@ if __name__=='__main__':
         print(message)
         sys.exit(0)
 
-    exptime = 0                           
+    exptime = 0
     for f in failed_need_resub:
         resub_group_id = f
         target, block_num = f.rsplit('_',1)
 
-        # SANITY CHECK - make sure we have a request file corresponding to this 
+        # SANITY CHECK - make sure we have a request file corresponding to this
         # THIS IS JUST IN CASE SOMEONE ELSE SUBMITS A REQUEST THAT FAILED WITH
         # THE SAME GROUP ID BUT IT IS STILL REGISTERED TO YOU
         # IF THIS HAPPENS, FIND OUT WHO
@@ -57,7 +58,7 @@ if __name__=='__main__':
             today = time.strftime("%Y%m%d")
             failed_filename = orig_request_file.replace('.json','_EXPIRED_{}.json'.format(today))
             os.rename(orig_request_file, failed_filename)
-    
+
         # what blocks are still pending for this target
         mask = (pending_targets_blocks.target == target)
         remaining_requests = len(pending_targets_blocks.blocks[mask])
@@ -86,11 +87,11 @@ if __name__=='__main__':
         # allow the user to pick which file they want
         ctr = 0
         state = False
-        while((ctr < nfiles) & (~state)): 
+        while((ctr < nfiles) & (~state)):
             # load the new request
             resub_file = resub_files[ctr]
 
-            # get the observation note for the new request that matches the original 
+            # get the observation note for the new request that matches the original
             _, fileid, _, totalid = resub_file.replace('.json','').rsplit('_',3)
             resub_observation_note = '{:02n}_of_{}'.format(int(block_num)+1, totalid)
 
@@ -124,7 +125,7 @@ if __name__=='__main__':
 
         # update the next request with the failed request group id and note
         a['group_id'] = resub_group_id
-        a['observation_note'] = resub_observation_note
+        a['requests']['observation_note'] = resub_observation_note
 
         # check that this new request is good
         resp_validate = requests.post('https://observe.lco.global/api/userrequests/validate/',\
@@ -132,7 +133,7 @@ if __name__=='__main__':
         if len(resp_validate['errors']) == 0:
             exptime += resp_validate['request_durations']['duration']
 
-            # resubmit the request 
+            # resubmit the request
             resp_submit = requests.post('https://observe.lco.global/api/userrequests/',\
 		     headers=headers, json=a)
             try:
