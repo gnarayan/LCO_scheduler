@@ -125,7 +125,7 @@ if __name__=='__main__':
 
         # update the next request with the failed request group id and note
         a['group_id'] = resub_group_id
-        a['requests']['observation_note'] = resub_observation_note
+        a['requests'][0]['observation_note'] = resub_observation_note
 
         # check that this new request is good
         resp_validate = requests.post('https://observe.lco.global/api/userrequests/validate/',\
