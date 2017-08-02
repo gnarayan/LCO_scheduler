@@ -2,6 +2,7 @@
 from __future__ import print_function
 import sys
 import os
+from six.moves import input
 import numpy as np
 import astropy.table as at
 import requests
