@@ -27,6 +27,14 @@ if __name__=='__main__':
         pending = requests.get(req, headers=headers).json()
         thispid = set([p['group_id'] for p in pending['results']])
         pid = pid | thispid
+        req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2017AB-002&title={}&state=COMPLETED'.format(x.split('.')[0])
+        completed = requests.get(req, headers=headers).json()
+        thiscid = set([c['group_id'] for c in completed['results']])
+        err = thiscid & thispid
+        if len(err) > 0:
+            message = 'Object {} has completed requests that are pending {}'.format(x, err)
+            warnings.warn(message, RuntimeWarning)
+        pid = pid | thiscid
 
     failed_need_resub = fid - pid
     pending_targets_blocks = [x.rsplit('_',1) for x in pid]
