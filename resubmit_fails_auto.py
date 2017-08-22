@@ -160,6 +160,14 @@ if __name__=='__main__':
         # update the next request with the failed request group id and note
         a['group_id'] = resub_group_id
         a['requests'][0]['observation_note'] = resub_observation_note
+        windows = a['requests'][0]['windows']
+        useful = [astropy.time.Time(x['start'],format='iso') > now for x in windows]
+        windows = [x for x, y in zip(windows, useful) if y is True]
+        if len(windows) == 0:
+            message = 'None of the windows for target {} start after now. Skipping {}'.format(target, resub_group_id)
+            warnings.warn(message, RuntimeWarning)
+            continue
+        a['requests'][0]['windows'] = windows
 
         # check that this new request is good
         resp_validate = requests.post('https://observe.lco.global/api/userrequests/validate/',\
