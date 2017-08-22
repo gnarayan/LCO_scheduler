@@ -3,8 +3,10 @@ from __future__ import print_function
 import sys
 import os
 from six.moves import input
+import datetime
 import numpy as np
 import astropy.table as at
+import astropy.time
 import requests
 import glob
 import json
@@ -24,6 +26,10 @@ if __name__=='__main__':
 
     pid = set()
     qid = set()
+
+    now = datetime.datetime.now()
+    now = astropy.time.Time(now, format='datetime')
+
     for x in targets['targetname']:
         req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2017AB-002&title={}&state=PENDING'.format(x.split('.')[0])
         pending = requests.get(req, headers=headers).json()
@@ -107,6 +113,17 @@ if __name__=='__main__':
         while((ctr < nfiles) & (~state)):
             # load the new request
             resub_file = resub_files[ctr]
+
+            a = None
+            with open(resub_file, 'r') as resub:
+                a = json.load(resub)
+                windows = a['requests'][0]['windows']
+                useful = [astropy.time.Time(x['end'],format='iso') > now for x in windows]
+                useful = np.array(useful)
+                if not np.any(useful):
+                    print("file {} is not useful since all windows have passed".format(resub_file))
+                    ctr += 1
+                    continue
 
             # get the observation note for the new request that matches the original
             _, fileid, _, totalid = resub_file.replace('.json','').rsplit('_',3)
