@@ -10,6 +10,7 @@ import glob
 import json
 import time
 import warnings
+from collections import Counter
 import astropy.units as u
 from matplotlib.mlab import rec2txt
 
@@ -22,13 +23,16 @@ if __name__=='__main__':
     fid = set([f['group_id'] for f in failed['results']])
 
     pid = set()
+    qid = set()
     for x in targets['targetname']:
         req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2017AB-002&title={}&state=PENDING'.format(x.split('.')[0])
         pending = requests.get(req, headers=headers).json()
         thispid = set([p['group_id'] for p in pending['results']])
         pid = pid | thispid
+        qid = qid | thispid
         req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2017AB-002&title={}&state=COMPLETED'.format(x.split('.')[0])
         completed = requests.get(req, headers=headers).json()
+        #thiscount = Counter([c['group_id'] for c in completed['results']])
         thiscid = set([c['group_id'] for c in completed['results']])
         err = thiscid & thispid
         if len(err) > 0:
@@ -37,6 +41,10 @@ if __name__=='__main__':
         pid = pid | thiscid
 
     failed_need_resub = fid - pid
+    print("PENDING")
+    print(qid)
+    print("FAILED NEED RESUB")
+    print(failed_need_resub)
     pending_targets_blocks = [x.rsplit('_',1) for x in pid]
     pending_targets_blocks = np.rec.fromrecords(pending_targets_blocks, names='target,blocks')
     if len(failed_need_resub) == 0:
