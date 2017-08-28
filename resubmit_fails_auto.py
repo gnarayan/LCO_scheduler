@@ -30,6 +30,10 @@ if __name__=='__main__':
     now = datetime.datetime.now()
     now = astropy.time.Time(now, format='datetime')
 
+    with open('failed_requests.txt', 'r') as failed_file:
+        xid = set([x.strip() for x in failed_file.readlines()])
+
+
     for x in targets['targetname']:
         req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2017AB-002&title={}&state=PENDING'.format(x.split('.')[0])
         pending = requests.get(req, headers=headers).json()
@@ -47,6 +51,7 @@ if __name__=='__main__':
         pid = pid | thiscid
 
     failed_need_resub = fid - pid
+    failed_need_resub = failed_need_resub - xid
     print("PENDING")
     print(qid)
     print("FAILED NEED RESUB")
@@ -57,6 +62,8 @@ if __name__=='__main__':
         message = 'Nothing to process. Bye.'
         print(message)
         sys.exit(0)
+
+    final_failed = []
 
     exptime = 0
     for f in failed_need_resub:
@@ -122,6 +129,7 @@ if __name__=='__main__':
                 useful = np.array(useful)
                 if not np.any(useful):
                     print("file {} is not useful since all windows have passed".format(resub_file))
+                    final_failed.append(resub_group_id)
                     ctr += 1
                     continue
 
@@ -197,3 +205,7 @@ if __name__=='__main__':
     exptime*= u.second
     left = exptime - 48*u.hour
     print(exptime, left)
+
+    final_failed = sorted(list(set(final_failed)))
+    with open('failed_requests.txt', 'a') as failed_file:
+        failed_file.writelines([x+'\n' for x in final_failed])
