@@ -58,7 +58,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     # this gives us a reasonable S/N ~100 at airmass 1.3. We split this into n_split exposures
     exptime_poly = np.array([-0.04543623, 1.8909311, -16.43566578])
     exptime_total = 10.**np.polyval(exptime_poly, this_target.gmag)
-    requested_exposure = round(exptime_total/n_split)
+    requested_exposure = round(1.1*exptime_total/n_split)
 
     coord_equinox= 2000.
 
@@ -78,7 +78,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
                     'exposure_count':n_split,\
                     'exposure_time':requested_exposure,\
                     'fill_window':False,\
-                    'filter':"gp",\
+                    'filter':"rp",\
                     'instrument_name':'1M0-SCICAM-SINISTRO',\
                     'type':'EXPOSE'}
 
@@ -90,9 +90,9 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
 
     # kick out dates on which the moon illumination is too high
     if this_target.gmag > 18.4:
-        moon_illum_limit = 0.40
+        moon_illum_limit = 0.50
     else:
-        moon_illum_limit = 0.85
+        moon_illum_limit = 0.90
 
     # in a perfect world, the target would be up for the entire useful window
     # in which case we want to split n_split_full observations over n_full_dates
@@ -275,10 +275,10 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
             "ipp_value": 1.05,
             "submitter": "gnarayan",
             "observation_type":"NORMAL",
-            "group_id":'%s_%02i'%(nice_target_name, block_num)
+            "group_id":'rband_%s_%02i'%(nice_target_name, block_num)
             }
 
-        out_json_file = 'LCO_json/%s_%02i_of_%02i.json'%(nice_target_name, block_num+1, n_blocks)
+        out_json_file = 'LCO_json_r/%s_%02i_of_%02i.json'%(nice_target_name, block_num+1, n_blocks)
         #print block_num, [x.iso.split(' ')[0] for x in this_block_dates]
 
 
@@ -319,7 +319,8 @@ def main():
 
     ############################ SETUP STATIC QUANTITIES ############################
     # read the target file and setup a mapping between target name, and corresponding time file
-    targets = np.recfromtxt('targets_LCO2017AB_002.txt', names=True)
+    #targets = np.recfromtxt('targets_LCO2017AB_002.txt', names=True)
+    targets = np.recfromtxt('targets_LCO2017AB_002_r.txt', names=True)
 
     window = {'start':'',\
                 'end':''}
@@ -355,23 +356,23 @@ def main():
 
 
 
-        processPool = multiprocessing.Pool(nproc)
-        lock = multiprocessing.Lock()
+    processPool = multiprocessing.Pool(nproc)
+    lock = multiprocessing.Lock()
 
-        multi_res = []
-        for this_target in targets:
-            args = (this_target, startsemester, endsemester, plan_sites)
-            #setup_target(*args)
-            res  = processPool.apply_async(setup_target, args)
-            multi_res.append(res)
+    multi_res = []
+    for this_target in targets:
+        args = (this_target, startsemester, endsemester, plan_sites)
+        #setup_target(*args)
+        res  = processPool.apply_async(setup_target, args)
+        multi_res.append(res)
 
 
-        processPool.close()
-        processPool.join()
+    processPool.close()
+    processPool.join()
 
-        for res in multi_res:
-            if res is not None:
-                out = res.get()
+    for res in multi_res:
+        if res is not None:
+            out = res.get()
 
 
 if __name__=='__main__':
