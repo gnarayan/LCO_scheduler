@@ -53,8 +53,10 @@ if __name__=='__main__':
     failed_need_resub = fid - pid
     failed_need_resub = failed_need_resub - xid
     print("PENDING")
+    qid = at.Table([list(sorted(list(qid))),], names=['requestID',])
     print(qid)
     print("FAILED NEED RESUB")
+    failed_need_resub = at.Table([list(sorted(list(failed_need_resub))),], names=['requestID',])
     print(failed_need_resub)
     pending_targets_blocks = [x.rsplit('_',1) for x in pid]
     pending_targets_blocks = np.rec.fromrecords(pending_targets_blocks, names='target,blocks')
@@ -66,7 +68,7 @@ if __name__=='__main__':
     final_failed = []
 
     exptime = 0
-    for f in failed_need_resub:
+    for f in failed_need_resub['requestID']:
         resub_group_id = f
         target, block_num = f.rsplit('_',1)
 
