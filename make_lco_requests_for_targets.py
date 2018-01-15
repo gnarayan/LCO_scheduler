@@ -47,7 +47,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     # as the target gets fainter, we actually need to split the exposures up a
     # bit more, so the individual ones don't get too long
     # this guards against guiding failure, phase blurring, cosmic rays, streaks...
-    if this_target.gmag > 19.1:
+    if this_target.gmag > 18.5:
         n_split = 4
     else:
         n_split = 3
@@ -58,7 +58,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     # this gives us a reasonable S/N ~100 at airmass 1.3. We split this into n_split exposures
     exptime_poly = np.array([-0.04543623, 1.8909311, -16.43566578])
     exptime_total = 10.**np.polyval(exptime_poly, this_target.gmag)
-    requested_exposure = round(1.2*exptime_total/n_split)
+    requested_exposure = round(1.1*exptime_total/n_split)
 
     coord_equinox= 2000.
 
@@ -78,7 +78,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
                     'exposure_count':n_split,\
                     'exposure_time':requested_exposure,\
                     'fill_window':False,\
-                    'filter':"rp",\
+                    'filter':"gp",\
                     'instrument_name':'1M0-SCICAM-SINISTRO',\
                     'type':'EXPOSE'}
 
@@ -270,15 +270,15 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
 
         user_request = {
             "operator" : "SINGLE",
-            "proposal" : "LCO2017AB-002",
+            "proposal" : "LCO2018A_002",
             "requests" : [request],
-            "ipp_value": 1.05,
+            "ipp_value": 1.00,
             "submitter": "gnarayan",
             "observation_type":"NORMAL",
-            "group_id":'rband_%s_%02i'%(nice_target_name, block_num)
+            "group_id":'gband_%s_%02i'%(nice_target_name, block_num)
             }
 
-        out_json_file = 'LCO_json_r/%s_%02i_of_%02i.json'%(nice_target_name, block_num+1, n_blocks)
+        out_json_file = 'LCO_json/%s_%02i_of_%02i.json'%(nice_target_name, block_num+1, n_blocks)
         #print block_num, [x.iso.split(' ')[0] for x in this_block_dates]
 
 
@@ -319,8 +319,7 @@ def main():
 
     ############################ SETUP STATIC QUANTITIES ############################
     # read the target file and setup a mapping between target name, and corresponding time file
-    #targets = np.recfromtxt('targets_LCO2017AB_002.txt', names=True)
-    targets = np.recfromtxt('targets_LCO2017AB_002_r.txt', names=True)
+    targets = np.recfromtxt('targets_LCO2018A_002.txt', names=True)
 
     window = {'start':'',\
                 'end':''}
@@ -338,7 +337,7 @@ def main():
     today = Time(datetime.datetime.now(), format='datetime')
     tomorrow = datetime.datetime.fromordinal(datetime.datetime.now().toordinal() + 2)
     startsemester  = Time(tomorrow,format='datetime')
-    endsemester = Time('2017-11-30T00:00:00', format='isot')
+    endsemester = Time('2018-05-31T00:00:00', format='isot')
 
     print "Start of window ",startsemester.to_datetime(), startsemester.jd
     print "End of window   ",endsemester.to_datetime(), endsemester.jd
