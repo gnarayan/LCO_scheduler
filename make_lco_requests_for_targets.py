@@ -58,7 +58,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
     # this gives us a reasonable S/N ~100 at airmass 1.3. We split this into n_split exposures
     exptime_poly = np.array([-0.04543623, 1.8909311, -16.43566578])
     exptime_total = 10.**np.polyval(exptime_poly, this_target.gmag)
-    requested_exposure = round(1.1*exptime_total/n_split)
+    requested_exposure = round(1.2*exptime_total/n_split)
 
     coord_equinox= 2000.
 

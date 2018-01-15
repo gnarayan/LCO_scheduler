@@ -7,7 +7,7 @@ import warnings
 import astropy.units as u
 
 if __name__=='__main__':
-    exptime = 0                           
+    exptime = 0
     token = sys.argv[1]
     f = glob.glob('LCO_json/*json')
     for infile in f:
