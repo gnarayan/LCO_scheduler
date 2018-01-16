@@ -270,7 +270,7 @@ def setup_target(this_target, startsemester, endsemester, plan_sites, verbose=Fa
 
         user_request = {
             "operator" : "SINGLE",
-            "proposal" : "LCO2018A_002",
+            "proposal" : "LCO2018A-002",
             "requests" : [request],
             "ipp_value": 1.00,
             "submitter": "gnarayan",

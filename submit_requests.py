@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 import sys
+import os
 import glob
 import json
 import requests
@@ -11,6 +12,7 @@ if __name__=='__main__':
     token = sys.argv[1]
     f = glob.glob('LCO_json/*json')
     for infile in f:
+        filename = os.path.basename(infile)
         with open(infile, 'r') as indata:
             a = json.load(indata)
         resp_validate = requests.post('https://observe.lco.global/api/userrequests/validate/',\
@@ -28,6 +30,8 @@ if __name__=='__main__':
 	else:
             print resp_validate
 	    print 'Not submitted: {}'.format(infile)
+            movefile = os.path.join('LCO_json/','not_submitted',filename)
+            os.rename(infile, movefile)
 
     exptime*= u.second
     left = exptime - 48*u.hour
