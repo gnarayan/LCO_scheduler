@@ -18,10 +18,10 @@ from matplotlib.mlab import rec2txt
 
 if __name__=='__main__':
     headers={'Authorization': 'Token {}'.format(sys.argv[1])}
-    targets = at.Table.read('targets_LCO2017AB_002.txt', format='ascii')
+    targets = at.Table.read('targets_LCO2018A_002.txt', format='ascii')
 
     # get the failed requests that have not already been resubmitted
-    failed = requests.get('https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2017AB-002&state=WINDOW_EXPIRED',headers=headers).json()
+    failed = requests.get('https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2018A-002&state=WINDOW_EXPIRED',headers=headers).json()
     fid = set([f['group_id'] for f in failed['results']])
 
     pid = set()
@@ -35,12 +35,12 @@ if __name__=='__main__':
 
 
     for x in targets['targetname']:
-        req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2017AB-002&title={}&state=PENDING'.format(x.split('.')[0])
+        req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2018A-002&title={}&state=PENDING'.format(x.split('.')[0])
         pending = requests.get(req, headers=headers).json()
         thispid = set([p['group_id'] for p in pending['results']])
         pid = pid | thispid
         qid = qid | thispid
-        req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2017AB-002&title={}&state=COMPLETED'.format(x.split('.')[0])
+        req = 'https://observe.lco.global/api/userrequests/?user=gnarayan&proposal=LCO2018A-002&title={}&state=COMPLETED'.format(x.split('.')[0])
         completed = requests.get(req, headers=headers).json()
         #thiscount = Counter([c['group_id'] for c in completed['results']])
         thiscid = set([c['group_id'] for c in completed['results']])
@@ -76,12 +76,18 @@ if __name__=='__main__':
         # THIS IS JUST IN CASE SOMEONE ELSE SUBMITS A REQUEST THAT FAILED WITH
         # THE SAME GROUP ID BUT IT IS STILL REGISTERED TO YOU
         # IF THIS HAPPENS, FIND OUT WHO
-        orig_request_file_pattern = '{}_{:02n}_of_[0-9][0-9].json'.format(target, int(block_num)+1)
+        try:
+            short_target = target.split('_')[1]
+        except Exception as e:
+            short_target = target
+
+        orig_request_file_pattern = '*{}_{:02n}_of_[0-9][0-9].json'.format(short_target, int(block_num)+1)
         orig_request_file_pattern = os.path.join('LCO_json',orig_request_file_pattern)
         orig_request_files = list(sorted(glob.glob(orig_request_file_pattern)))
+        print(orig_request_file_pattern)
         nfiles = len(orig_request_files)
         if nfiles != 1:
-            message = 'Huh. Could not find a unique original request file for target {}. {}'.format(target, orig_request_files)
+            message = 'Huh. Could not find a unique original request file for target {}. {}'.format(short_target, orig_request_files)
             warnings.warn(message, RuntimeWarning)
         else:
             orig_request_file = orig_request_files[0]
@@ -94,6 +100,7 @@ if __name__=='__main__':
         # what blocks are still pending for this target
         mask = (pending_targets_blocks.target == target)
         remaining_requests = len(pending_targets_blocks.blocks[mask])
+        print(target, remaining_requests)
         if remaining_requests == 0:
             message = 'There are no more pending requests for the target {}. Cannot reschedule'.format(target)
             warnings.warn(message)
@@ -103,7 +110,7 @@ if __name__=='__main__':
         resub_files = []
         # get the corresponding requests for each pending block
         for resub_block in resub_blocks:
-            resub_request_file_pattern = '{}_{:02n}_of_[0-9][0-9].json'.format(target, resub_block+1)
+            resub_request_file_pattern = '{}_{:02n}_of_[0-9][0-9].json'.format(short_target, resub_block+1)
             resub_request_file_pattern = os.path.join('LCO_json',resub_request_file_pattern)
             resub_files += list(sorted(glob.glob(resub_request_file_pattern)))
         resub_files = list(sorted(resub_files))
